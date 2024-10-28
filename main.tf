@@ -1,17 +1,3 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-# Configure the AWS Provider
-provider "aws" {
-  region = "us-east-1"
-}
-
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -54,10 +40,6 @@ resource "aws_route_table" "public" {
   }
 }
 
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-}
-
 resource "aws_route_table_association" "public1" {
   subnet_id      = aws_subnet.public1.id
   route_table_id = aws_route_table.public.id
@@ -73,13 +55,44 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-resource "aws_security_group" "public_sg" {
+resource "aws_eip" "myeip" {
+    domain   = "vpc"
+}
+
+resource "aws_nat_gateway" "ngw" {
+  allocation_id = aws_eip.myeip.id
+  subnet_id     = aws_subnet.public1.id
+}
+
+resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
+  route {
+    cidr_block = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.ngw.id
+  }
+}
+
+resource "aws_security_group" "public_sg" {
+  vpc_id = aws_vpc.main.id
+  #this ingress allows from everywhere
   ingress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  #to restrict from everywhere , remove above ingress block and enable only from port 22 & 80
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -92,17 +105,9 @@ resource "aws_security_group" "public_sg" {
 }
 resource "aws_security_group" "private_sg" {
   name        = "private_sg"
-  description = "Allow SSH from within VPC"
+  description = "Dont allow internet to private subnet"
   vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description = "SSH from VPC"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
-  }
-
+  #allows only outboundrule for privatesubnet
   egress {
     from_port = 0
     to_port   = 0
@@ -115,8 +120,8 @@ resource "aws_security_group" "private_sg" {
   }
 }
 resource "aws_instance" "public1" {
-  ami           = "ami-0866a3c8686eaeeba"
-  instance_type = "t2.micro"
+  ami           = var.ami_id
+  instance_type = var.instance_type
   subnet_id     = aws_subnet.public1.id
   vpc_security_group_ids = [aws_security_group.public_sg.id]
    tags = {
@@ -125,8 +130,8 @@ resource "aws_instance" "public1" {
 }
 
 resource "aws_instance" "public2" {
-  ami           = "ami-0866a3c8686eaeeba"
-  instance_type = "t2.micro"
+  ami           = var.ami_id
+  instance_type = var.instance_type
   subnet_id     = aws_subnet.public2.id
   vpc_security_group_ids = [aws_security_group.public_sg.id]
    tags = {
@@ -135,8 +140,8 @@ resource "aws_instance" "public2" {
 }
 
 resource "aws_instance" "private" {
-  ami           = "ami-0866a3c8686eaeeba"
-  instance_type = "t2.micro"
+  ami           = var.ami_id
+  instance_type = var.instance_type
   subnet_id     = aws_subnet.private.id
   vpc_security_group_ids = [aws_security_group.private_sg.id]
    tags = {
